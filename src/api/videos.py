@@ -1,20 +1,18 @@
 from fastapi import APIRouter
 from fastapi import File, UploadFile, status
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from src.middleware.processing import processing_video
+import uuid
 
 
 router=APIRouter()
-
 MAX_VIDEO_SIZE_MB = 100
 ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime"]  # MP4, MOV и т.д.
 
-
-
-
 @router.post("/upload-validated-video/")
 async def upload_validated_video(video: UploadFile = File(...)):
+    task_id = str(uuid.uuid4())
     # Проверка типа
     if video.content_type not in ALLOWED_VIDEO_TYPES:
         raise HTTPException(
@@ -33,12 +31,14 @@ async def upload_validated_video(video: UploadFile = File(...)):
     
     # Сохранение...
     
-    with open(f"src/uploads/{video.filename}", "wb") as buffer:
+    with open(f"src/uploads/{task_id}.mp4", "wb") as buffer:
         buffer.write(await video.read())
     
-    result = await processing_video(video.filename)
-    return {"status": f"ready as {result}"}
-    
+    processing_video.delay(f"{task_id}.mp4")
+    return JSONResponse(
+        status_code=202,  # Accepted (задача принята в обработку)
+        content={"task_id": task_id, "status": "queued"}
+    )
 
 @router.get("/get_video/{video_name}")
 async def get_video(video_name:str):
