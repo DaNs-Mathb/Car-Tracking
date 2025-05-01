@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from fastapi import File, UploadFile, status
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from src.middleware.processing import processing_video
+from src.middleware.video_processing import processing_video
 import uuid
 
 
@@ -49,15 +49,5 @@ async def get_video(video_name:str):
 async def get_status(task_id: str):
     # Здесь проверяем статус в Redis/БД (пример упрощен)
     return {"task_id": task_id, "status": "processing"}
-
-
-
-
-
-
-
-
-
-
 
 
