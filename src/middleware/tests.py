@@ -4,7 +4,15 @@ from ultralytics import YOLO
 import os
 import shutil
 from minio import Minio
-
+import cv2 
+from ultralytics import YOLO
+import torch
+from celery import Celery
+from minio import Minio
+from minio.lifecycleconfig import LifecycleConfig, Expiration, Rule
+from minio.commonconfig import ENABLED, Filter
+import os
+from dotenv import load_dotenv
 
 
 
@@ -43,36 +51,53 @@ from minio import Minio
     
     
 # process_video_task('src/uploads/cars.mp4','123')
-import cv2
 
-def get_video_codec(input_path):
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise ValueError("Не удалось открыть видеофайл")
-    
-    # Получаем FOURCC код кодека
-    fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-    fourcc_str = (
-        chr(fourcc_int & 0xFF) +
-        chr((fourcc_int >> 8) & 0xFF) +
-        chr((fourcc_int >> 16) & 0xFF) +
-        chr((fourcc_int >> 24) & 0xFF)
-    )
-    
-    # Дополнительная информация
-    codec_name = {
-        'avc1': 'H.264/AVC',
-        'h264': 'H.264',
-        'mp4v': 'MPEG-4',
-        'XVID': 'XVID',
-        'MJPG': 'Motion-JPEG',
-        'VP80': 'VP8/WebM'
-    }.get(fourcc_str.lower(), f"Неизвестный кодек ({fourcc_str})")
-    
-    cap.release()
-    return fourcc_str, codec_name
 
-# Использование:
-input_video = "src/uploads/83da3a5b-4cd5-4abf-92fd-b3b9fa4d1022.mp4"
-codec, codec_name = get_video_codec(input_video)
-print(f"Кодек видео: {codec} ({codec_name})")
+# def get_video_codec(input_path):
+#     cap = cv2.VideoCapture(input_path)
+#     if not cap.isOpened():
+#         raise ValueError("Не удалось открыть видеофайл")
+    
+#     # Получаем FOURCC код кодека
+#     fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+#     fourcc_str = (
+#         chr(fourcc_int & 0xFF) +
+#         chr((fourcc_int >> 8) & 0xFF) +
+#         chr((fourcc_int >> 16) & 0xFF) +
+#         chr((fourcc_int >> 24) & 0xFF)
+#     )
+    
+#     # Дополнительная информация
+#     codec_name = {
+#         'avc1': 'H.264/AVC',
+#         'h264': 'H.264',
+#         'mp4v': 'MPEG-4',
+#         'XVID': 'XVID',
+#         'MJPG': 'Motion-JPEG',
+#         'VP80': 'VP8/WebM'
+#     }.get(fourcc_str.lower(), f"Неизвестный кодек ({fourcc_str})")
+    
+#     cap.release()
+#     return fourcc_str, codec_name
+
+# # Использование:
+# input_video = "src/uploads/83da3a5b-4cd5-4abf-92fd-b3b9fa4d1022.mp4"
+# codec, codec_name = get_video_codec(input_video)
+# print(f"Кодек видео: {codec} ({codec_name})")
+client = Minio(
+    os.getenv("MINIO_ENDPOINT"),
+    access_key=os.getenv("MINIO_ACCESS_KEY"),
+    secret_key=os.getenv("MINIO_SECRET_KEY"),
+    secure=False  # True для HTTPS
+)
+rule = Rule(
+    "expire-rule",  # ID правила
+    ENABLED,        # Состояние правила
+    Filter(prefix="prefix/"),  # Фильтр по префиксу (можно оставить пустым для всех)
+    Expiration(days=1)  # Удалить через 7 дней
+)
+
+config = LifecycleConfig([rule])
+
+# Устанавливаем политику для бакета
+client.set_bucket_lifecycle("processed-videos", config)

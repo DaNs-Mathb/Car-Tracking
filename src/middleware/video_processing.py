@@ -3,12 +3,15 @@ from ultralytics import YOLO
 import torch
 from celery import Celery
 from minio import Minio
+from minio.lifecycleconfig import LifecycleConfig, Expiration, Rule
+from minio.commonconfig import ENABLED, Filter
 import os
 from dotenv import load_dotenv
 
 load_dotenv() 
 
 celery_app = Celery("tasks", broker=os.getenv("REDIS_URL"))
+celery_app.conf.result_backend = os.getenv("REDIS_URL")
 
 
 client = Minio(
@@ -19,16 +22,19 @@ client = Minio(
 )
 
 
-@celery_app.task(name="src.middleware.processing.processing_video")
-def processing_video(input_video: str ,classe:int=2):
+
+@celery_app.task(bind=True,name="src.middleware.video_processing.processing_video")
+def processing_video(self,input_video: str ,classe:int=2):
     try:
+        
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # print(f"Using device: {device}")
         model = YOLO("src/middleware/yolo11m.pt").to(device)  # Замените "yolov8n.pt" на путь к вашей модели
         # Открываем видео через OpenCV
         cap = cv2.VideoCapture(f"src/uploads/{input_video}")
     
-
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
 
         # Проверка, что видеофайл открылся
         if not cap.isOpened():
@@ -58,7 +64,19 @@ def processing_video(input_video: str ,classe:int=2):
                 # Обрабатываем каждый (skip_frames+1)-й кадр
                 results = model.track(frame, classes=[classe], persist=True, device=device, imgsz=640)
                 last_processed_frame = results[0].plot()  # Сохраняем обработанный кадр
-        
+
+            progress = int((frame_count / total_frames) * 100)
+            if progress % 5 == 0:
+                
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'progress': progress,
+                        'current': frame_count,
+                        'total': total_frames
+                    }
+                )
+            
             # Записываем последний обработанный кадр для всех кадров
             if last_processed_frame is not None:
                 out.write(last_processed_frame)
@@ -77,9 +95,17 @@ def processing_video(input_video: str ,classe:int=2):
             if os.path.exists(file_path):
                 os.remove(file_path)
         
-        return {"status": "success", "task_id": input_video}
+        return {
+            "status": "success",
+            "original_task_id": self.request.id,  # Настоящий task_id из Celery
+            "processed_file": output_name,
+        }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {
+            "status": "error",
+            "error": str(e),
+            "original_task_id": self.request.id,  # Даже при ошибке возвращаем task_id
+        }
 # print(torch.cuda.is_available())
 # processing_video(input_video="cars.mp4")
 
